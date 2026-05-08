@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import ipaddress
+import os
+import platform
 import queue
+import re
+import shutil
+import subprocess
 import threading
 import time
 from datetime import timedelta
@@ -14,6 +20,94 @@ from torch.utils.data import DataLoader, TensorDataset
 from .models import CifarCnn
 
 DEFAULT_DIST_TIMEOUT_SECONDS = 60.0
+TAILSCALE_IPV4_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _run_text(command: list[str], timeout: float = 3.0) -> str:
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _is_tailscale_ipv4(address: str) -> bool:
+    try:
+        return ipaddress.ip_address(address) in TAILSCALE_IPV4_NETWORK
+    except ValueError:
+        return False
+
+
+def _interface_for_darwin_route(address: str) -> str:
+    output = _run_text(["route", "-n", "get", address])
+    match = re.search(r"^\s*interface:\s*(\S+)", output, flags=re.MULTILINE)
+    return match.group(1) if match else ""
+
+
+def _tailscale_interface_from_ifconfig() -> str:
+    output = _run_text(["ifconfig"])
+    current = ""
+    for line in output.splitlines():
+        header = re.match(r"^([A-Za-z0-9_.-]+):\s", line)
+        if header:
+            current = header.group(1)
+            continue
+        parts = line.strip().split()
+        if len(parts) >= 2 and parts[0] == "inet" and _is_tailscale_ipv4(parts[1]):
+            return current
+    return ""
+
+
+def _windows_tailscale_interface() -> str:
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    if not powershell:
+        return ""
+    command = (
+        "$ip = Get-NetIPAddress -AddressFamily IPv4 "
+        "| Where-Object { $_.IPAddress -like '100.*' } "
+        "| Select-Object -First 1; "
+        "if ($ip) { $ip.InterfaceAlias }"
+    )
+    return _run_text([powershell, "-NoProfile", "-Command", command])
+
+
+def _linux_route_interface(address: str) -> str:
+    output = _run_text(["ip", "route", "get", address])
+    parts = output.split()
+    if "dev" in parts:
+        index = parts.index("dev") + 1
+        if index < len(parts):
+            return parts[index]
+    return ""
+
+
+def _detect_gloo_socket_ifname(master_addr: str) -> str:
+    system = platform.system()
+    if system == "Darwin":
+        return _interface_for_darwin_route(master_addr) or _tailscale_interface_from_ifconfig()
+    if system == "Windows":
+        return _windows_tailscale_interface()
+    return _linux_route_interface(master_addr)
+
+
+def _configure_gloo_network(master_addr: str, rank: int) -> None:
+    if os.environ.get("GLOO_SOCKET_IFNAME"):
+        return
+    if not _is_tailscale_ipv4(master_addr):
+        return
+    interface = _detect_gloo_socket_ifname(master_addr)
+    if interface:
+        os.environ["GLOO_SOCKET_IFNAME"] = interface
+        print(
+            f"[distributed] rank {rank}: using GLOO_SOCKET_IFNAME={interface}",
+            flush=True,
+        )
 
 
 def choose_device(accelerator: str) -> torch.device:
@@ -121,6 +215,7 @@ def run_training(
     device = choose_device(accelerator)
     timeout = timedelta(seconds=max(1.0, timeout_seconds))
     current_epoch = 0
+    _configure_gloo_network(master_addr, rank)
 
     try:
         dist.init_process_group(
