@@ -89,8 +89,23 @@ function Invoke-Checked {
         throw "Executable not found: $FilePath"
     }
 
-    & "$resolvedPath" @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
-    $exitCode = $LASTEXITCODE
+    $previousErrorActionPreference = $ErrorActionPreference
+    $previousNativeErrorPreference = $null
+    if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -Scope Global -ErrorAction SilentlyContinue) {
+        $previousNativeErrorPreference = $global:PSNativeCommandUseErrorActionPreference
+        $global:PSNativeCommandUseErrorActionPreference = $false
+    }
+
+    try {
+        $ErrorActionPreference = "Continue"
+        & "$resolvedPath" @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+        if ($null -ne $previousNativeErrorPreference) {
+            $global:PSNativeCommandUseErrorActionPreference = $previousNativeErrorPreference
+        }
+    }
 
     if ($exitCode -ne 0) {
         throw "Command failed with exit code ${exitCode}: $resolvedPath $($Arguments -join ' ')"
