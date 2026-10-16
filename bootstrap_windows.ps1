@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$LeaderHost = if ($env:LEADER_HOST) { $env:LEADER_HOST } else { "devanshis-macbook-air.taila5426e.ts.net" }
+$LeaderHost = if ($env:LEADER_HOST) { $env:LEADER_HOST } else { "127.0.0.1" }
 $LeaderPort = if ($env:LEADER_PORT) { [int]$env:LEADER_PORT } else { 8787 }
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $VenvDir = Join-Path $ProjectDir ".venv"

@@ -1,131 +1,56 @@
-# Tailscale Distributed ML Skeleton
+# Heterogeneous Distributed ML Training
 
-Idempotent worker bootstrap, leader/worker heartbeat and reconnect behavior,
-plus two training modes:
+A cross-platform leader/worker system for running small distributed-training experiments across commodity macOS and Windows machines connected through Tailscale.
 
-- `federated` keeps the reliable MNIST model-averaging path.
-- `distributed` uses CIFAR-10, a CNN, weighted data shards, rank assignment,
-  and `torch.distributed` gradient synchronization.
+The project focuses on the operational problems around training, not only the model loop: worker discovery, hardware-aware allocation, heartbeats, reconnect behavior, rank assignment, binary shard transfer, synchronized execution, and run reporting.
 
-## Worker Join Page
+## What it demonstrates
 
-Copy-paste worker setup commands are available from the GitHub Pages join page:
+- **Control plane:** asynchronous worker registration, health checks, bounded reconnect backoff, and leader commands.
+- **Heterogeneous scheduling:** workers report benchmark scores; the leader converts them into weighted data slices and bounded batch multipliers.
+- **Two execution paths:** federated MNIST model averaging and synchronized CIFAR-10 training with `torch.distributed`.
+- **Cross-platform setup:** idempotent bootstrap scripts for macOS and Windows.
+- **Experiment visibility:** per-epoch metrics plus CSV and text summaries under `runs/`.
 
-```text
-https://ruturaj-vasant.github.io/Distributed_MachineLearning_Training_Inference/
+```mermaid
+flowchart LR
+    L[Leader\ncontrol plane + rank 0] -->|registration and heartbeats| W1[macOS worker]
+    L -->|weighted shard + rank| W2[Windows worker]
+    L -->|weighted shard + rank| W3[Additional worker]
+    W1 <-->|Gloo all-reduce| W2
+    W2 <-->|Gloo all-reduce| W3
+    W3 <-->|Gloo all-reduce| L
 ```
 
-## Leader on the Mac
+## Training modes
+
+| Mode | Dataset | Coordination | Purpose |
+| --- | --- | --- | --- |
+| `federated` | MNIST | Leader aggregates completed worker models with weighted FedAvg | Reliable baseline that tolerates workers completing independently |
+| `distributed` | CIFAR-10 | Leader and workers join one Gloo process group and synchronize gradients | Data-parallel execution with explicit ranks and world size |
+
+The distributed path currently uses a compact CNN so that the complete workflow can be exercised on laptops. The companion [single-device benchmark](https://github.com/nikhildinesharora/single-device-ml-benchmark) evaluates larger ResNet and ViT workloads on CIFAR-100 and Tiny ImageNet-200.
+
+## Quick start
+
+Requires Python 3.11 or newer. Start locally first, then replace the loopback address with the leader's reachable Tailscale address for a multi-machine run.
+
+### Leader on macOS
 
 ```bash
 chmod +x leader_macos.sh bootstrap_macos.sh
-./leader_macos.sh
-```
-
-The leader binds to the Tailscale IPv4 address when `tailscale ip -4` works; otherwise it binds to `0.0.0.0`. Override with:
-
-```bash
 ./leader_macos.sh --host 0.0.0.0 --port 8787
 ```
 
-`leader_macos.sh` checks the requested control port before startup. If an older
-project leader is still listening on that port, it stops that stale process
-before starting the new leader.
+At the prompt, use `workers` to inspect the cluster and `start` to begin a run. `help` lists the available commands.
 
-Leader commands:
-
-- `workers` shows connected workers.
-- `start` starts training with the configured default epoch count.
-- `start 2` starts training for 2 epochs.
-- `start epochs=5 batches=100 lr=0.03` starts a federated run with per-run
-  epoch, batch-count, and learning-rate overrides.
-- `help` shows the available leader commands.
-- `quit` stops the leader cleanly.
-
-By default there is no worker cap. For a course demo of rejection behavior, run:
-
-```bash
-./leader_macos.sh --max-workers 5
-```
-
-Useful training knobs:
-
-```bash
-./leader_macos.sh \
-  --train-batches-per-epoch 200 \
-  --batch-size 64 \
-  --epochs 5 \
-  --eval-batches 40
-```
-
-At each epoch boundary the leader snapshots currently connected workers, allocates MNIST batches proportional to their reported benchmark score, sends the current model to each worker, FedAvg-aggregates successful worker models, and logs train/validation loss. At the end of a run, the leader prints a summary table, a terminal metric graph, and saves CSV/TXT reports under `runs/`.
-
-## Advanced Distributed Mode
-
-Use this when you want the stronger scalable ML-system story:
-
-```bash
-./leader_macos.sh \
-  --mode distributed \
-  --host 0.0.0.0 \
-  --dist-master-addr 100.86.163.78 \
-  --dist-port 29501 \
-  --distributed-samples 5000 \
-  --distributed-batches-per-epoch 10 \
-  --distributed-timeout 120 \
-  --epochs 5
-```
-
-The leader loads CIFAR-10, includes itself as rank 0, splits data across the
-leader and workers proportional to benchmark score, sends worker shards as
-binary payloads, assigns ranks/world size, and starts synchronized
-`torch.distributed` training. Workers keep sending heartbeats while their
-training thread participates in the process group.
-
-If Tailscale IP detection is not the address workers should use for
-`torch.distributed`, pass it explicitly:
-
-```bash
-./leader_macos.sh --mode distributed --dist-master-addr 100.x.y.z
-```
-
-The control channel uses `--port` and the distributed process group uses
-`--dist-port`, so both ports must be reachable between the leader and workers.
-
-## Worker on macOS
-
-From the unzipped project folder:
-
-```bash
-chmod +x bootstrap_macos.sh
-./bootstrap_macos.sh
-```
-
-The script installs/checks Xcode Command Line Tools, Homebrew, curl, git, Python 3.11, Tailscale, and the selected PyTorch build, then creates `.venv` and starts the worker from that virtual environment.
-
-## Worker on Windows
-
-From PowerShell in the unzipped project folder:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\bootstrap_windows.ps1
-```
-
-The script installs/checks winget, curl, git, Python 3.11, Tailscale, and the selected PyTorch build, then creates `.venv` and starts the worker from that virtual environment.
-
-## Configuration
-
-Workers connect to:
-
-```text
-devanshis-macbook-air.taila5426e.ts.net:8787
-```
-
-Override when testing:
+### Worker on macOS
 
 ```bash
 LEADER_HOST=127.0.0.1 LEADER_PORT=8787 ./bootstrap_macos.sh
 ```
+
+### Worker on Windows
 
 ```powershell
 $env:LEADER_HOST = "127.0.0.1"
@@ -133,6 +58,73 @@ $env:LEADER_PORT = "8787"
 powershell -ExecutionPolicy Bypass -File .\bootstrap_windows.ps1
 ```
 
-For fast connection-only tests, set `SKIP_TORCH_INSTALL=1` before running the bootstrap.
+The bootstrap scripts create a virtual environment, install the selected PyTorch build, and launch the worker. Windows detects NVIDIA hardware with `nvidia-smi`; the PyTorch CUDA wheel supplies its own runtime when the installed driver is compatible.
 
-Windows note: the bootstrap detects NVIDIA GPUs with `nvidia-smi`, but does not force a CUDA Toolkit install by default because that commonly needs admin approval. The selected PyTorch CUDA wheel includes the CUDA runtime needed for PyTorch execution when the NVIDIA driver is compatible.
+## Synchronized distributed run
+
+Use an address reachable by every participant for `--dist-master-addr`. The control channel and process group use separate ports.
+
+```bash
+./leader_macos.sh \
+  --mode distributed \
+  --host 0.0.0.0 \
+  --dist-master-addr 100.x.y.z \
+  --dist-port 29501 \
+  --distributed-samples 5000 \
+  --distributed-batches-per-epoch 10 \
+  --distributed-timeout 120 \
+  --epochs 5
+```
+
+The leader includes itself as rank 0, snapshots the available workers, computes benchmark-weighted slices, sends shards as length-prefixed binary payloads, and starts the process group. Workers continue emitting control-plane heartbeats while their training threads participate in synchronization.
+
+## Useful controls
+
+```bash
+# Federated run with explicit limits
+./leader_macos.sh \
+  --train-batches-per-epoch 200 \
+  --batch-size 64 \
+  --epochs 5 \
+  --eval-batches 40
+
+# Demonstrate admission control
+./leader_macos.sh --max-workers 5
+```
+
+Per-run overrides are also available from the leader prompt:
+
+```text
+start epochs=5 batches=100 lr=0.03
+```
+
+## Repository layout
+
+```text
+dml_cluster/
+  leader.py                Worker lifecycle, scheduling, aggregation, and reports
+  worker.py                Registration, heartbeat, reconnect, and training threads
+  protocol.py              JSON-line control messages and bounded binary payloads
+  distributed_data.py      Weighted shard allocation and batch multipliers
+  distributed_training.py  Process-group setup and synchronized training
+  training.py              Federated local training and evaluation
+  hardware.py              Device discovery and benchmark reporting
+tests/                      Deterministic tests for scheduling and protocol helpers
+bootstrap_macos.sh          macOS worker setup
+bootstrap_windows.ps1       Windows worker setup
+leader_macos.sh             Leader launcher
+```
+
+## Verification
+
+The deterministic scheduling and wire-protocol helpers are covered with standard-library unit tests:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+GitHub Actions runs the suite on Python 3.11 and 3.12.
+
+## Scope and limitations
+
+This is an academic systems prototype, not a fault-tolerant production trainer. The control channel is intended for a trusted private network, distributed membership is fixed for the duration of a synchronized run, and worker loss during an all-reduce requires restarting that run. Model checkpoints and datasets are intentionally excluded from version control.

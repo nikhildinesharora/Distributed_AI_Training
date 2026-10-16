@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LEADER_HOST="${LEADER_HOST:-devanshis-macbook-air.taila5426e.ts.net}"
+LEADER_HOST="${LEADER_HOST:-127.0.0.1}"
 LEADER_PORT="${LEADER_PORT:-8787}"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="${PROJECT_DIR}/.venv"

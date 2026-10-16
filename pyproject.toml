@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tailscale-dml"
 version = "0.1.0"
-description = "Minimal Tailscale-connected distributed ML training skeleton"
+description = "Cross-platform leader-worker training with health checks, weighted sharding, and PyTorch Distributed"
 requires-python = ">=3.11"
 dependencies = ["numpy>=1.24"]
 

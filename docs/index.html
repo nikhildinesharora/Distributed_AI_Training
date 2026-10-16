@@ -294,7 +294,7 @@
             <h2>Leader Mac</h2>
             <span class="shell">Terminal</span>
           </div>
-          <pre><code>cd /Users/ruturaj_vasant/Downloads/Distributed_AI_Training
+          <pre><code>cd ~/Downloads/Distributed_AI_Training
 ./leader_macos.sh --mode federated --host 0.0.0.0</code></pre>
           <p class="panel-note">
             In the leader terminal, use <code>workers</code> to see joined
@@ -312,7 +312,7 @@
             <h2>Local test (same Mac)</h2>
             <span class="shell">Terminal</span>
           </div>
-          <pre><code>cd /Users/ruturaj_vasant/Downloads/Distributed_AI_Training
+          <pre><code>cd ~/Downloads/Distributed_AI_Training
 LEADER_HOST=127.0.0.1 LEADER_PORT=8787 \
   .venv/bin/python -m dml_cluster.worker \
   --leader 127.0.0.1 \
@@ -335,7 +335,7 @@ stage="$(mktemp -d)"
 cleanup() { [ -n "$stage" ] &amp;&amp; rm -rf "$stage"; }
 trap cleanup EXIT
 mkdir -p "$runtime" &amp;&amp; \
-curl -L "https://github.com/Ruturaj-Vasant/Distributed_AI_Training/archive/refs/heads/main.zip" -o "$stage/worker.zip" &amp;&amp; \
+curl -L "https://github.com/nikhildinesharora/Distributed_AI_Training/archive/refs/heads/main.zip" -o "$stage/worker.zip" &amp;&amp; \
 unzip -q -o "$stage/worker.zip" -d "$stage" &amp;&amp; \
 rsync -a --delete --exclude ".venv/" --exclude ".data/" --exclude ".dml_worker_id" "$stage/Distributed_AI_Training-main/" "$runtime/" &amp;&amp; \
 cd "$runtime" &amp;&amp; \
@@ -353,7 +353,7 @@ $runtime = Join-Path $work "Distributed_AI_Training-main"
 $stage = Join-Path ([IO.Path]::GetTempPath()) ("dml-worker-install-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $runtime, $stage | Out-Null
 try {
-  Invoke-WebRequest -Uri "https://github.com/Ruturaj-Vasant/Distributed_AI_Training/archive/refs/heads/main.zip" -OutFile (Join-Path $stage "worker.zip")
+  Invoke-WebRequest -Uri "https://github.com/nikhildinesharora/Distributed_AI_Training/archive/refs/heads/main.zip" -OutFile (Join-Path $stage "worker.zip")
   Expand-Archive -Path (Join-Path $stage "worker.zip") -DestinationPath $stage -Force
   $source = Join-Path $stage "Distributed_AI_Training-main"
   Get-ChildItem -Force $runtime | Where-Object { @(".venv", ".data", ".dml_worker_id") -notcontains $_.Name } | Remove-Item -Recurse -Force
@@ -369,7 +369,7 @@ try {
       <section class="footer-note" aria-label="Connection details">
         <p>
           Default leader:
-          <span class="accent">devanshis-macbook-air.taila5426e.ts.net:8787</span>
+          <span class="accent">127.0.0.1:8787 (local test)</span>
         </p>
         <p>
           For a different leader, set <code>LEADER_HOST</code> and
